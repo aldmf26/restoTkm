@@ -10,6 +10,7 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use Illuminate\Support\Str;
 use DateTime;
+use GuzzleHttp\Client;
 
 class Point_masak extends Controller
 {
@@ -21,90 +22,39 @@ class Point_masak extends Controller
             return back();
         } else {
             $id_lokasi = $r->session()->get('id_lokasi');
-            if (empty($r->tgl1)) {
-                $tgl1 = date('Y-m-01');
-                $tgl2 = date('Y-m-d');
-            } else {
-                $tgl1 = $r->tgl1;
-                $tgl2 = $r->tgl2;
-            }
-            $lamaMenit = DB::table('tb_menit')->where('id_lokasi',$id_lokasi)->first();
-            
 
+            $tgl1 = $r->tgl1 ?? date('Y-m-01');
+            $tgl2 = $r->tgl2 ?? date('Y-m-d');
 
-            $total_not_gojek = DB::selectOne("SELECT SUM(if(tb_transaksi.total_orderan - discount - voucher < 0 ,0,tb_transaksi.total_orderan - discount - voucher)) as total FROM `tb_transaksi`
-            LEFT JOIN(SELECT tb_order2.no_order2 as no_order, tb_order2.id_distribusi as id_distribusi FROM tb_order2 GROUP BY tb_order2.no_order2) dt_order ON tb_transaksi.no_order = dt_order.no_order
-            WHERE tb_transaksi.id_lokasi = '$id_lokasi' and  dt_order.id_distribusi != '2' AND tb_transaksi.tgl_transaksi >= '$tgl1' AND tb_transaksi.tgl_transaksi <= '$tgl2'");
+            $client = new Client();
 
-            $masak = DB::select("SELECT a.nama,b.rp_m, sum(l.qty_m) AS qty_m, sum(l.qty_e) AS qty_e, sum(l.qty_sp) AS qty_sp,e.point_gagal,f.point_berhasil, b.rp_e, b.rp_sp
-            FROM tb_karyawan AS a
-            left join tb_gaji AS b ON b.id_karyawan = a.id_karyawan
-            LEFT JOIN (
-                    SELECT c.id_karyawan,  c.status, c.id_lokasi,
-                    if(c.status = 'M', COUNT(c.status), 0) AS qty_m,
-                    if(c.status = 'E', COUNT(c.status), 0) AS qty_e,
-                    if(c.status = 'SP', COUNT(c.status), 0) AS qty_sp,
-                    if(c.status = 'OFF', COUNT(c.status), 0) AS qty_off
-                    FROM tb_absen AS c 
-                    WHERE c.tgl BETWEEN '$tgl1' AND '$tgl2' and c.id_lokasi = '$id_lokasi' and c.status != 'OFF'
-                    GROUP BY c.id_karyawan, c.status
-                    ) AS l ON l.id_karyawan = a.id_karyawan
-                    
-                    LEFT JOIN (
-                    SELECT koki, SUM(nilai_koki) as point_gagal FROM view_nilai_masak2 
-                    WHERE tgl BETWEEN '$tgl1' AND '$tgl2' AND lama_masak > $lamaMenit->menit and id_lokasi = '$id_lokasi'
-                    GROUP BY koki , id_lokasi
-                    )e ON a.id_karyawan = e.koki
-                    
-                    LEFT JOIN (
-                        SELECT koki, SUM(nilai_koki) as point_berhasil FROM view_nilai_masak2 
-                        WHERE tgl >= '$tgl1' AND tgl <= '$tgl2' AND lama_masak <= $lamaMenit->menit and id_lokasi = '$id_lokasi'
-                        GROUP BY koki , id_lokasi
-                    )f ON a.id_karyawan = f.koki
+            $response = $client->request('GET', "https://ptagafood.com/api/pointKitchen/$id_lokasi/$tgl1/$tgl2");
 
+            $data = json_decode($response->getBody(), true);
+            $masak = json_decode(json_encode($data['masak']), false);
+            $absen = json_decode(json_encode($data['absen']), false);
+            $service_charge = json_decode(json_encode($data['service_charge']), false);
+            $orang = json_decode(json_encode($data['orang']), false);
+            $kom = json_decode(json_encode($data['kom']), false);
+            $orang2 = json_decode(json_encode($data['orang2']), false);
+            $point = json_decode(json_encode($data['point']), false);
+            $jumlah_orang = json_decode(json_encode($data['jumlah_orang']), false);
+            $persen = json_decode(json_encode($data['persen']), false);
 
-                        WHERE a.id_status = '1' and a.tgl_masuk <= '$tgl2' and l.id_lokasi ='$id_lokasi' and a.id_posisi not in ('3','2') and a.point = 'Y'
-                        group by a.id_karyawan
-        ");
-    //         $server = DB::select("SELECT a.nama, b.rp_m, sum(l.qty_m) AS qty_m, sum(l.qty_e) AS qty_e, sum(l.qty_sp) AS qty_sp, b.rp_e, b.rp_sp, b.komisi
-    //     FROM tb_karyawan AS a
-    //     left join tb_gaji AS b ON b.id_karyawan = a.id_karyawan
-    //     LEFT JOIN (
-    //            SELECT c.id_karyawan,  c.status, c.id_lokasi,
-    //             if(c.status = 'M', COUNT(c.status), 0) AS qty_m,
-    //             if(c.status = 'E', COUNT(c.status), 0) AS qty_e,
-    //             if(c.status = 'SP', COUNT(c.status), 0) AS qty_sp,
-    //             if(c.status = 'OFF', COUNT(c.status), 0) AS qty_off
-    //             FROM tb_absen AS c 
-    //             WHERE c.tgl BETWEEN '$tgl1' AND '$tgl2' and c.id_lokasi = '$id_lokasi'
-    //             GROUP BY c.id_karyawan, c.status
-    //             ) AS l ON l.id_karyawan = a.id_karyawan
-
-    //     LEFT JOIN (
-    //     SELECT a.admin, SUM(if(a.voucher != '0' ,0, a.hrg )) AS komisi
-    //     FROM view_summary_server AS a
-    //     WHERE a.tgl BETWEEN '$tgl1' AND '$tgl2'
-    //     GROUP BY a.admin
-    //     ) AS b ON b.admin = a.nama
-
-    //             WHERE  a.tgl_masuk <= '$tgl2' and l.id_lokasi ='$id_lokasi' and a.id_status ='2'
-    //             group by a.id_karyawan
-            
-
-
-                    
-    // ");
             $data = [
                 'title' => 'Point Masak',
                 'masak' => $masak,
-                // 'server' => $server,
+                'absen' => $absen,
+                'service_charge' => $service_charge,
+                'orang' => $orang,
+                'kom' => $kom,
+                'orang2' => $orang2,
+                'point' => $point,
+                'jumlah_orang' => $jumlah_orang,
+                'persen' => $persen,
                 'tgl1' => $tgl1,
                 'tgl2' => $tgl2,
-                'service' => $total_not_gojek,
-                'jumlah_orang' => DB::table('tb_jumlah_orang')->where('ket_karyawan', 'Kitchen')->where('id_lokasi', $id_lokasi)->first(),
-                'persen' => DB::table('persentse_komisi')->where('nama_persentase', 'Kitchen')->where('id_lokasi', $id_lokasi)->first(),
-                'jumlah_orang2' => DB::table('tb_jumlah_orang')->where('ket_karyawan', 'Server')->where('id_lokasi', $id_lokasi)->first(),
-                'persen2' => DB::table('persentse_komisi')->where('nama_persentase', 'Server')->where('id_lokasi', $id_lokasi)->first(),
+                'id_lokasi' => $id_lokasi,
                 'logout' => $r->session()->get('logout'),
             ];
 
